@@ -19,6 +19,8 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Random;
+import java.util.jar.Attributes;
+
 import moa.classifiers.AbstractClassifier;
 import moa.classifiers.Classifier;
 import moa.core.Measurement;
@@ -27,11 +29,15 @@ import org.apache.commons.math3.stat.correlation.SpearmansCorrelation;
 import org.apache.commons.math3.stat.descriptive.DescriptiveStatistics;
 import org.apache.commons.math3.stat.inference.TestUtils;
 import org.apache.commons.math3.stat.correlation.PearsonsCorrelation;
+import org.w3c.dom.Attr;
 
 /**
  *
  * @author luiseduardoboikoferreira
  */
+
+
+
 public class Rfao extends AbstractClassifier implements MultiClassClassifier {
 
     public ClassOption baseLearnerOption = new ClassOption(
@@ -68,7 +74,7 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
     protected ArrayList<Attribute> atributosBinarios;
     protected ArrayList<Attribute> atributosNormais;
     protected ArrayList<Attribute> atributosNaoNormais;
-    protected ArrayList<Attribute> atributosCorrelacionados;
+    protected ArrayList<CorrelatedPairs> atributosCorrelacionados;
 
     protected Double balanceLevel;
     @Override
@@ -99,7 +105,7 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
         this.atributosBinarios = new ArrayList<>();
         this.atributosNormais = new ArrayList<>();
         this.atributosNaoNormais = new ArrayList<>();
-        this.atributosCorrelacionados = new ArrayList<>();
+        this.atributosCorrelacionados = new ArrayList<CorrelatedPairs>();
     }
 
     private enum CorrelationKind {
@@ -210,13 +216,9 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
                 } else if (kind == CorrelationKind.NotNormal) {
                     corr = new SpearmansCorrelation().correlation(pivot, toCompare);
                 }
-
                 if (corr >= this.expectedCorrelationOption.getValue()) {
-                    System.out.println(this.expectedCorrelationOption.getValue());
-                    System.out.println(arrayAttributes.get(i).name() + " com " +arrayAttributes.get(j).name());
-                    System.out.println(corr);
-                    System.out.println("----------");
-                    // TODO adicionar a lista de atributos correlacionados
+                    this.atributosCorrelacionados.add(new CorrelatedPairs(arrayAttributes.get(i),
+                            arrayAttributes.get(j)));
                 }
             }
         }
@@ -286,23 +288,6 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
             if (!this.atributosNaoNormais.contains(atr)) { this.atributosNaoNormais.add(atr); }
         }
 
-        // TODO
-        // criar um dict para os atributos normais, nao normais e binarios
-        // testar correlacao entre os atributos
-        // criar uma estrutura para salvar os pares correlacionados
-        // funcao de regressao para os pares correlacionados
-//        this.generateSynthValuesByMean(atr, mean, std);
-
-        // printing shit
-//        System.out.println("----------------------------------------");
-//        System.out.println("Atributo: " + atr);
-//        System.out.printf("Média:    %.2f\n", mean);
-//        System.out.printf("Std:      %.2f\n", std);
-//        System.out.printf("Mediana:  %.2f\n", this.stats.getPercentile(50));
-//        System.out.printf("Min:      %.2f\n", this.stats.getMin());
-//        System.out.printf("Max:      %.2f\n", this.stats.getMax());
-//        System.out.printf("p:        %.2f\n", pvalue);
-
         //stores mean and stddev
         this.means.put(atr, mean);
         this.stdDevs.put(atr, std);
@@ -313,41 +298,33 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
 
 
     private double generateSynthValuesByMean(/*Attribute atributo, */Double mean, Double std) {
-        // gerar synth baseado na media
-        Random r = new Random();
         double rangeMin = (mean - std);
         double rangeMax = (mean + std);
-        double value = rangeMin + (rangeMax - rangeMin) * r.nextDouble();
+        double value = rangeMin + (rangeMax - rangeMin) * this.classifierRandom.nextDouble();
         return value;
     }
 
 
     private void generateSynthInstances() {
         this.synthInst.delete();
-        // First, lets actually create the instances,
-        // regardless of their actual values
+        double v = 0.0;
         for (int k = 0; k < this.numInstanciasGerar; k++) {
             Instance synt = new DenseInstance(batch.numAttributes());
             synt.setDataset(synthInst);
 
             for (int l = 0; l < this.batchMin.numAttributes(); l++) {
-
                 if (l != this.batch.get(0).classIndex()) {
                     Attribute att = this.batch.get(0).attribute(l);
-                    double stddev = this.stdDevs.get(att);
-                    double mean = this.means.get(att);
-                    double trend = this.trends.get(att);
-                    double v = 0.0;
 
                     if (att.isNumeric()) {
-                        v = generateSynthValuesByMean(mean, stddev);
+                        v = generateSynthValuesByMean(this.means.get(this.batch.get(0).attribute(l)),
+                                this.stdDevs.get(this.batch.get(0).attribute(l)));
                     } else if (att.isNominal()) {
                         if (att.numValues() == 2) {
-                            v = trend;
+                            v = this.trends.get(att);
                         } else {
                             // TODO fazer gerar via distribuicao de probabilidade
-                            v = trend;
-//                            v = generateSynthValuesByMean(trend, stddev);
+                            v = this.trends.get(att);
                         }
                     }
 
@@ -365,15 +342,21 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
 
     }
 
-    private void showClassDistr() {
-        System.out.println(String.format("Classe %s : %s, Classe %s : %s.",
-                this.classes.get(0).toString(), this.classesDistr.get(0).toString(),
-                this.classes.get(1).toString(), this.classesDistr.get(1).toString()));
-    }
 
     private int calcularNumInstanciasGerar() {
         int quantasInstanciasDeveriaTer = (int) (this.batchMaj.size() * this.ratioOption.getValue());
         return quantasInstanciasDeveriaTer - this.batchMin.size();
     }
+
+    private class CorrelatedPairs{
+        Attribute a;
+        Attribute b;
+        CorrelatedPairs(Attribute a, Attribute b){
+            this.a = a;
+            this.b = b;
+        }
+
+    }
+
 }
 
