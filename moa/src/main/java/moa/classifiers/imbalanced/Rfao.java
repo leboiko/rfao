@@ -79,6 +79,7 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
     protected ArrayList<Attribute> atributosNormais;
     protected ArrayList<Attribute> atributosNaoNormais;
     protected ArrayList<CorrelatedPairs> atributosCorrelacionados;
+    protected HashMap<Attribute, HashMap<Double,Double>> dictOfProbabilities;
 
     protected Double balanceLevel;
     @Override
@@ -111,7 +112,8 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
         this.atributosBinarios = new ArrayList<>();
         this.atributosNormais = new ArrayList<>();
         this.atributosNaoNormais = new ArrayList<>();
-        this.atributosCorrelacionados = new ArrayList<CorrelatedPairs>();
+        this.atributosCorrelacionados = new ArrayList<>();
+        this.dictOfProbabilities = new HashMap<>();
     }
 
     private enum CorrelationKind {
@@ -157,6 +159,8 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
                 this.getStatistics(instnc);
                 this.correlationTest(this.atributosNormais, CorrelationKind.Normal);
                 this.correlationTest(this.atributosNaoNormais, CorrelationKind.NotNormal);
+
+                this.setDictOfProbabilities(instnc);
 
                 this.generateSynthInstances();
 
@@ -270,39 +274,52 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
     }
 
     private void getStatistics(Instance instance) {
-        for (int i = 0; i < instance.numAttributes() - 1; i++) {
-            this.getBasicInfo(instance.attribute(i));
+        for (int i = 0; i < instance.numAttributes(); i++) {
+            if (i != instance.classIndex()) {
+                this.getBasicInfo(instance.attribute(i));
+            }
         }
     }
 
 
-    private Double getValueByProbability (Attribute attr) {
-        double [] arrayValues = this.getArrayOfValues(attr);
-        HashMap<Double,Double> repetitionMap = new HashMap<>();
-        for(Double val : arrayValues){
+    private void setDictOfProbabilities (Instance instnc) {
 
-            if(repetitionMap.containsKey(val)) {
-                repetitionMap.put(val,repetitionMap.get(val) + 1);
-            }
-            else {
-                repetitionMap.put(val, 1.0);
+        for (int i = 0; i < instnc.numAttributes(); i++) {
+            if (instnc.attribute(i).isNominal()) {
+                double [] arrayValues = this.getArrayOfValues(instnc.attribute(i));
+                HashMap<Double,Double> repetitionMap = new HashMap<>();
+                for(Double val : arrayValues){
+
+                    if(repetitionMap.containsKey(val)) {
+                        repetitionMap.put(val,repetitionMap.get(val) + 1);
+                    }
+                    else {
+                        repetitionMap.put(val, 1.0);
+                    }
+                }
+                this.dictOfProbabilities.put(instnc.attribute(i), new HashMap<>(this.normalizeDict(repetitionMap)));
             }
         }
-        HashMap<Double,Double> dictOfProbabilities = this.normalizeDict(repetitionMap);
 
+
+    }
+
+    private Double getValueByProbability(Attribute attr) {
         double randomValue = this.classifierRandom.nextDouble();
-        ArrayList<Double> dictIndex = new ArrayList<Double>(dictOfProbabilities.keySet());
+        ArrayList<Double> dictIndex = new ArrayList<>(this.dictOfProbabilities.get(attr).keySet());
         Collections.sort(dictIndex);
         double previousValue = 0.0;
         double valueToReturn = 0.0;
         for (Double value : dictIndex) {
-            if (randomValue >= previousValue && randomValue < dictOfProbabilities.get(value))  {
+            if (randomValue >= previousValue && randomValue < this.dictOfProbabilities.get(attr).get(value))  {
                 valueToReturn = value;
             }
-            previousValue = dictOfProbabilities.get(value);
+            previousValue = this.dictOfProbabilities.get(attr).get(value);
         }
 
         return valueToReturn;
+
+
     }
 
     private HashMap<Double,Double> normalizeDict (HashMap<Double,Double> dictToNormalize) {
@@ -386,8 +403,6 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
                         if (att.numValues() == 2) {
                             v = this.trends.get(att);
                         } else {
-                            // TODO fazer gerar via distribuicao de probabilidade
-//                            v = this.trends.get(att);
                             v = this.getValueByProbability(att);
                         }
                     }
