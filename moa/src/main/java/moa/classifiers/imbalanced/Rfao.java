@@ -23,8 +23,10 @@ import moa.classifiers.AbstractClassifier;
 import moa.classifiers.Classifier;
 import moa.core.Measurement;
 import org.apache.commons.math3.distribution.NormalDistribution;
+import org.apache.commons.math3.stat.correlation.SpearmansCorrelation;
 import org.apache.commons.math3.stat.descriptive.DescriptiveStatistics;
 import org.apache.commons.math3.stat.inference.TestUtils;
+import org.apache.commons.math3.stat.correlation.PearsonsCorrelation;
 
 /**
  *
@@ -63,6 +65,10 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
     protected HashMap<Attribute, Double> means;
     protected HashMap<Attribute, Double> stdDevs;
     protected HashMap<Attribute, Double> trends;
+    protected ArrayList<Attribute> atributosBinarios;
+    protected ArrayList<Attribute> atributosNormais;
+    protected ArrayList<Attribute> atributosNaoNormais;
+    protected ArrayList<Attribute> atributosCorrelacionados;
 
     protected Double balanceLevel;
     @Override
@@ -90,6 +96,15 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
         this.stdDevs = new HashMap<>();
         this.trends = new HashMap<>();
         this.balanceLevel = 0.0;
+        this.atributosBinarios = new ArrayList<>();
+        this.atributosNormais = new ArrayList<>();
+        this.atributosNaoNormais = new ArrayList<>();
+        this.atributosCorrelacionados = new ArrayList<>();
+    }
+
+    private enum CorrelationKind {
+        Normal,
+        NotNormal
     }
 
     @Override
@@ -116,7 +131,6 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
             });
 
             this.whoIsMaj();
-
             for(int i = 0; i < batch.numInstances(); i++){
                 this.fillBags(batch.get(i));
                 this.learner.trainOnInstance(batch.get(i));
@@ -129,11 +143,12 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
 
                 this.numInstanciasGerar = this.calcularNumInstanciasGerar();
                 this.getStatistics(instnc);
+                this.correlationTest(this.atributosNormais, CorrelationKind.Normal);
+                this.correlationTest(this.atributosNaoNormais, CorrelationKind.NotNormal);
                 this.generateSynthInstances();
 
                 for (int h = 0; h < this.synthInst.numInstances(); h++) {
                     this.learner.trainOnInstance(this.synthInst.get(h));
-//                    System.out.println("Treinando com instancia sintética");
                 }
             }
         } else {
@@ -150,12 +165,9 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
             } else {
                 this.batchMaj.delete(0);
             }
-
-            this.batch.add(instnc);
-        } else {
-            this.batch.add(instnc);
         }
 
+        this.batch.add(instnc);
         this.observedInstances++;
         this.classesCount.add(instnc.classValue());
     }
@@ -175,6 +187,42 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
         return true;
     }
 
+    private double[] getArrayOfValues(Attribute attr) {
+        double[] arrayValores = new double[this.batchMin.numInstances()];
+        // Itero sobre todos os valores correspondentes ao atributo
+        int indexOfAtt = this.batchMin.get(0).indexOfAttribute(attr);
+        for(int iteRow = 0; iteRow < this.batchMin.numInstances(); iteRow++){
+            double value = this.batchMin.get(iteRow).value(indexOfAtt);
+            arrayValores[iteRow] = value;
+        }
+        return arrayValores;
+    }
+
+
+    private void correlationTest(ArrayList<Attribute> arrayAttributes, CorrelationKind kind) {
+        for (int i = 0; i < arrayAttributes.size(); i++) {
+            double [] pivot = this.getArrayOfValues(arrayAttributes.get(i));
+            for (int j = i + 1; j< arrayAttributes.size(); j++) {
+                double [] toCompare = this.getArrayOfValues(arrayAttributes.get(j));
+                double corr = 0.0;
+                if (kind == CorrelationKind.Normal) {
+                    corr = new PearsonsCorrelation().correlation(pivot, toCompare);
+                } else if (kind == CorrelationKind.NotNormal) {
+                    corr = new SpearmansCorrelation().correlation(pivot, toCompare);
+                }
+
+                if (corr >= this.expectedCorrelationOption.getValue()) {
+                    System.out.println(this.expectedCorrelationOption.getValue());
+                    System.out.println(arrayAttributes.get(i).name() + " com " +arrayAttributes.get(j).name());
+                    System.out.println(corr);
+                    System.out.println("----------");
+                    // TODO adicionar a lista de atributos correlacionados
+                }
+            }
+        }
+    }
+
+    
 
     private void instantiateSynth() {
         this.synthInst = new Instances(batch);
@@ -217,13 +265,10 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
     }
 
     private void getBasicInfo(Attribute atr) {
-        double[] arrayValores = new double[this.batchMin.numInstances()];
-        // Itero sobre todos os valores correspondentes ao atributo
-        int indexOfAtt = this.batchMin.get(0).indexOfAttribute(atr);
-        for(int iteRow = 0; iteRow < this.batchMin.numInstances(); iteRow++){
-            double value = this.batchMin.get(iteRow).value(indexOfAtt);
-            this.stats.addValue(value);
-            arrayValores[iteRow] = value;
+
+        double[] arrayOfValues = this.getArrayOfValues(atr);
+        for (int i = 0; i < arrayOfValues.length; i++) {
+            this.stats.addValue(arrayOfValues[i]);
         }
 
         // informacoes estatisticas
@@ -234,11 +279,13 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
         final NormalDistribution unitNormal = new NormalDistribution(mean,
                 std);
         double pvalue = TestUtils.kolmogorovSmirnovStatistic(unitNormal,
-                arrayValores);
-        // teste para ver se eh binario
-        if (this.testBinary(arrayValores)) {
-            System.out.println("É binario!");
+                arrayOfValues);
+        if (pvalue <= 0.05) {
+            if (!this.atributosNormais.contains(atr)) { this.atributosNormais.add(atr); }
+        } else {
+            if (!this.atributosNaoNormais.contains(atr)) { this.atributosNaoNormais.add(atr); }
         }
+
         // TODO
         // criar um dict para os atributos normais, nao normais e binarios
         // testar correlacao entre os atributos
@@ -263,13 +310,7 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
         this.stats.clear();
     }
 
-    private boolean testBinary(double values[]) {
-        HashSet<Double> set = new HashSet<>();
-        for(double v : values) set.add(v);
-//        long uniques = set.stream().distinct().count();
-        boolean isBinary = set.size() < 3;
-        return isBinary;
-    }
+
 
     private double generateSynthValuesByMean(/*Attribute atributo, */Double mean, Double std) {
         // gerar synth baseado na media
@@ -281,7 +322,6 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
     }
 
 
-
     private void generateSynthInstances() {
         this.synthInst.delete();
         // First, lets actually create the instances,
@@ -290,22 +330,30 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
             Instance synt = new DenseInstance(batch.numAttributes());
             synt.setDataset(synthInst);
 
-            for (int l = 0; l < this.batchMin.numAttributes() - 1; l++) {
+            for (int l = 0; l < this.batchMin.numAttributes(); l++) {
 
-                Attribute att = this.batch.get(0).attribute(l);
-                double stddev = this.stdDevs.get(att);
-                double mean = this.means.get(att);
-                double trend = this.trends.get(att);
-                double v = 0.0;
+                if (l != this.batch.get(0).classIndex()) {
+                    Attribute att = this.batch.get(0).attribute(l);
+                    double stddev = this.stdDevs.get(att);
+                    double mean = this.means.get(att);
+                    double trend = this.trends.get(att);
+                    double v = 0.0;
 
-                if (att.isNumeric()) {
-                    v = generateSynthValuesByMean(mean, stddev);
-                } else if (att.isNominal()) {
-                    v = generateSynthValuesByMean(trend, stddev);
+                    if (att.isNumeric()) {
+                        v = generateSynthValuesByMean(mean, stddev);
+                    } else if (att.isNominal()) {
+                        if (att.numValues() == 2) {
+                            v = trend;
+                        } else {
+                            // TODO fazer gerar via distribuicao de probabilidade
+                            v = trend;
+//                            v = generateSynthValuesByMean(trend, stddev);
+                        }
+                    }
+
+                    synt.setValue(l, v);
                 }
 
-
-                synt.setValue(l, v);
             }
 
             // sets the class
