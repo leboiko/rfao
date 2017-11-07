@@ -49,6 +49,8 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
 
     public FloatOption expectedCorrelationOption = new FloatOption(
             "expectedCorrelation", 'c', "", 0.1, 0.0, 1.0);
+    public FloatOption expandCorrelatedAttributes = new FloatOption(
+            "expandCorrelatedAttributes", 'e', "", 0.1, 0.0, 1.0);
     // adicionar balancear ou nao
     public MultiChoiceOption balanceOption = new MultiChoiceOption("applyBalance", 'b',
             "", new String[]{"True", "False"}, new String[]{"to balance", "or not"}, 0);
@@ -71,6 +73,8 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
     protected HashMap<Attribute, Double> means;
     protected HashMap<Attribute, Double> stdDevs;
     protected HashMap<Attribute, Double> trends;
+    protected HashMap<Attribute, Double> mins;
+    protected HashMap<Attribute, Double> maxs;
     protected ArrayList<Attribute> atributosBinarios;
     protected ArrayList<Attribute> atributosNormais;
     protected ArrayList<Attribute> atributosNaoNormais;
@@ -101,6 +105,8 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
         this.means = new HashMap<>();
         this.stdDevs = new HashMap<>();
         this.trends = new HashMap<>();
+        this.mins = new HashMap<>();
+        this.maxs = new HashMap<>();
         this.balanceLevel = 0.0;
         this.atributosBinarios = new ArrayList<>();
         this.atributosNormais = new ArrayList<>();
@@ -151,6 +157,7 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
                 this.getStatistics(instnc);
                 this.correlationTest(this.atributosNormais, CorrelationKind.Normal);
                 this.correlationTest(this.atributosNaoNormais, CorrelationKind.NotNormal);
+
                 this.generateSynthInstances();
 
                 for (int h = 0; h < this.synthInst.numInstances(); h++) {
@@ -217,13 +224,23 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
                     corr = new SpearmansCorrelation().correlation(pivot, toCompare);
                 }
                 if (corr >= this.expectedCorrelationOption.getValue()) {
-                    this.atributosCorrelacionados.add(new CorrelatedPairs(arrayAttributes.get(i),
-                            arrayAttributes.get(j)));
+                    if (!this.atributosCorrelacionados.contains(new CorrelatedPairs(arrayAttributes.get(i),
+                            arrayAttributes.get(j)))) {
+                        this.atributosCorrelacionados.add(new CorrelatedPairs(arrayAttributes.get(i),
+                                arrayAttributes.get(j)));
+                        System.out.println("Atributos " + arrayAttributes.get(i) + " e " + arrayAttributes.get(j) +
+                                " sao correlacionados");
+                    }
+                } else {
+                    // gerar via moda e media
                 }
             }
         }
     }
 
+    private void generateByRegression() {
+
+    }
     
 
     private void instantiateSynth() {
@@ -239,14 +256,6 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
 
     }
 
-    private void classBalanceInBatch() {
-        if (this.sMin == this.classes.get(0)) {
-            this.balanceLevel = (double) (this.classesDistr.get(0) / this.classesDistr.get(1));
-        } else {
-            this.balanceLevel = (double) (this.classesDistr.get(1) / this.classesDistr.get(0));
-        }
-        System.out.println(this.balanceLevel);
-    }
 
     private void whoIsMaj() {
         if (this.classes.size() > 1) {
@@ -266,22 +275,69 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
         }
     }
 
-    private void getBasicInfo(Attribute atr) {
 
+    private Double getValueByProbability (Attribute attr) {
+        double [] arrayValues = this.getArrayOfValues(attr);
+        HashMap<Double,Double> repetitionMap = new HashMap<>();
+        for(Double val : arrayValues){
+
+            if(repetitionMap.containsKey(val)) {
+                repetitionMap.put(val,repetitionMap.get(val) + 1);
+            }
+            else {
+                repetitionMap.put(val, 1.0);
+            }
+        }
+        HashMap<Double,Double> dictOfProbabilities = this.normalizeDict(repetitionMap);
+
+        double randomValue = this.classifierRandom.nextDouble();
+        ArrayList<Double> dictIndex = new ArrayList<Double>(dictOfProbabilities.keySet());
+        Collections.sort(dictIndex);
+        double previousValue = 0.0;
+        double valueToReturn = 0.0;
+        for (Double value : dictIndex) {
+            if (randomValue >= previousValue && randomValue < dictOfProbabilities.get(value))  {
+                valueToReturn = value;
+            }
+            previousValue = dictOfProbabilities.get(value);
+        }
+
+        return valueToReturn;
+    }
+
+    private HashMap<Double,Double> normalizeDict (HashMap<Double,Double> dictToNormalize) {
+        final Double sumRef = this.sumDictValues(dictToNormalize);
+        dictToNormalize.entrySet().forEach(item ->
+                item.setValue(item.getValue() / sumRef) //update dict normalizing
+        );
+
+        ArrayList<Double> dictIndex = new ArrayList<Double>(dictToNormalize.keySet());
+        Collections.sort(dictIndex);
+        double previousValue = 0.0;
+        for (Double value : dictIndex) {
+            dictToNormalize.put(value, dictToNormalize.get(value) + previousValue);
+            previousValue = dictToNormalize.get(value);
+        }
+
+        return dictToNormalize;
+    }
+    private Double sumDictValues(HashMap<Double,Double> dictToSum) {
+        Double sum = 0.0;
+        for (Double value : dictToSum.values()) {
+            sum += value;
+        }
+
+        return sum;
+    }
+    private void getBasicInfo(Attribute atr) {
         double[] arrayOfValues = this.getArrayOfValues(atr);
+
         for (int i = 0; i < arrayOfValues.length; i++) {
             this.stats.addValue(arrayOfValues[i]);
         }
 
-        // informacoes estatisticas
-        double mean = this.stats.getMean();
-        double std = this.stats.getStandardDeviation();
-        double trend = this.stats.getPercentile(50);
-        // gero uma normal para comparar
-        final NormalDistribution unitNormal = new NormalDistribution(mean,
-                std);
-        double pvalue = TestUtils.kolmogorovSmirnovStatistic(unitNormal,
-                arrayOfValues);
+        double pvalue = this.ksTest(this.stats.getMean(), this.stats.getStandardDeviation(), arrayOfValues);
+
         if (pvalue <= 0.05) {
             if (!this.atributosNormais.contains(atr)) { this.atributosNormais.add(atr); }
         } else {
@@ -289,18 +345,25 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
         }
 
         //stores mean and stddev
-        this.means.put(atr, mean);
-        this.stdDevs.put(atr, std);
-        this.trends.put(atr, trend);
+        this.means.put(atr, this.stats.getMean());
+        this.stdDevs.put(atr, this.stats.getStandardDeviation());
+        this.trends.put(atr, this.stats.getPercentile(50));
+        this.mins.put(atr, this.stats.getMin());
+        this.maxs.put(atr, this.stats.getMax());
         this.stats.clear();
     }
 
-
+    private double ksTest(Double mean, Double std, double[] values) {
+        // gero uma normal para comparar
+        final NormalDistribution unitNormal = new NormalDistribution(mean, std);
+        return TestUtils.kolmogorovSmirnovStatistic(unitNormal, values);
+    }
 
     private double generateSynthValuesByMean(/*Attribute atributo, */Double mean, Double std) {
         double rangeMin = (mean - std);
         double rangeMax = (mean + std);
         double value = rangeMin + (rangeMax - rangeMin) * this.classifierRandom.nextDouble();
+
         return value;
     }
 
@@ -324,7 +387,8 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
                             v = this.trends.get(att);
                         } else {
                             // TODO fazer gerar via distribuicao de probabilidade
-                            v = this.trends.get(att);
+//                            v = this.trends.get(att);
+                            v = this.getValueByProbability(att);
                         }
                     }
 
