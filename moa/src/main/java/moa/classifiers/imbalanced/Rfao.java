@@ -57,6 +57,15 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
     public MultiChoiceOption balanceOption = new MultiChoiceOption("applyBalance", 'b',
             "", new String[]{"True", "False"}, new String[]{"to balance", "or not"}, 0);
 
+    public MultiChoiceOption ensureNeighborhood = new MultiChoiceOption("ensureNeighborhood", 'n',
+            "", new String[]{"True", "False"}, new String[]{"to ensure", "or not"}, 0);
+
+    public IntOption knnToEnsure = new IntOption("knn", 'k', "", 3, 0,
+            Integer.MAX_VALUE);
+
+    public IntOption minNehghbors = new IntOption("minNeighbors", 'h', "", 2, 0,
+            Integer.MAX_VALUE);
+
     protected Classifier learner;
     protected Integer observedInstances;
     protected Instances batch;
@@ -214,13 +223,13 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
         try {
             knn.setInstances(this.batch);
             int counter = 0;
-            Instances toTest = knn.kNearestNeighbours(synthInstnc, 3);
+            Instances toTest = knn.kNearestNeighbours(synthInstnc, this.knnToEnsure.getValue());
             for (int i = 0; i < toTest.size(); i++) {
                 if (toTest.get(i).classValue() == this.sMin) {
                     counter += 1;
                 }
             }
-            if (counter >= 2) {
+            if (counter >= this.minNehghbors.getValue()) {
                 synthIsOk = true;
             }
         } catch (Exception e) {
@@ -553,7 +562,11 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
             // sets the class
             synt.setClassValue(this.sMin);
 
-            if (this.checkNeighborhood(synt)) {
+            if ("True".equals(this.ensureNeighborhood.getChosenLabel())){
+                if (this.checkNeighborhood(synt)) {
+                    this.synthInst.add(synt);
+                }
+            } else {
                 this.synthInst.add(synt);
             }
         }
