@@ -232,20 +232,63 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
                             arrayAttributes.get(j)))) {
                         this.atributosCorrelacionados.add(new CorrelatedPairs(arrayAttributes.get(i),
                                 arrayAttributes.get(j)));
-                        System.out.println("Atributos " + arrayAttributes.get(i) + " e " + arrayAttributes.get(j) +
-                                " sao correlacionados");
+                        System.out.println("Attributes " + arrayAttributes.get(i) + " and " + arrayAttributes.get(j) +
+                                " are correlated with " + String.valueOf(corr));
                     }
-                } else {
-                    // gerar via moda e media
                 }
             }
         }
     }
 
-    private void generateByRegression() {
+    private HashMap<Attribute, Double> generateByRegression(Attribute attrOne, Attribute attrTwo) {
+        double[] x = this.getArrayOfValues(attrOne);
+        double[] y = this.getArrayOfValues(attrTwo);
+        double m = 0.0;
+        double b = 0.0;
+        HashMap<Attribute, Double> valuesByAtt = new HashMap<>();
+        if (x.length == y.length) {
+            m = this.sumArray(this.productBetweenArrays(x, y)) - this.sumArray(x) * this.sumArray(y);
+            m /= this.sumArray(this.squareArray(x)) - Math.pow(this.sumArray(x), 2) / x.length;
+            b = this.mean(y) - m * this.mean(x);
+            valuesByAtt.put(attrOne, 1.0 + this.maxs.get(attrOne));
+            valuesByAtt.put(attrTwo, m * valuesByAtt.get(attrOne) + b);
+        }
 
+
+        // prediction = m * valor + b;
+        return valuesByAtt;
     }
-    
+
+    private double mean(double[] array) {
+        return this.sumArray(array) / array.length;
+    }
+
+    private double[] productBetweenArrays(double[] x, double[] y) {
+        double [] produto = new double[x.length];
+        for (int j = 0; j < x.length; j++) {
+            produto[j] = x[j] * y[j];
+        }
+
+        return produto;
+    }
+
+    private double[] squareArray(double[] arrayToSquare) {
+        double [] square = new double[arrayToSquare.length];
+        for (int j = 0; j < arrayToSquare.length; j++) {
+            square[j] = Math.pow(arrayToSquare[j], 2);
+        }
+
+        return square;
+    }
+
+    private double sumArray(double[] arrayToSum) {
+        double sum = 0.0;
+        for (int j = 0; j < arrayToSum.length; j++) {
+            sum += arrayToSum[j];
+        }
+
+        return sum;
+    }
 
     private void instantiateSynth() {
         this.synthInst = new Instances(batch);
@@ -338,6 +381,7 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
 
         return dictToNormalize;
     }
+
     private Double sumDictValues(HashMap<Double,Double> dictToSum) {
         Double sum = 0.0;
         for (Double value : dictToSum.values()) {
@@ -353,15 +397,18 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
             this.stats.addValue(arrayOfValues[i]);
         }
 
-        double pvalue = this.ksTest(this.stats.getMean(), this.stats.getStandardDeviation(), arrayOfValues);
+        if (this.stats.getStandardDeviation() != 0) {
+            double pvalue = this.ksTest(this.stats.getMean(), this.stats.getStandardDeviation(), arrayOfValues);
 
-        if (pvalue <= 0.05) {
-            if (!this.atributosNormais.contains(atr)) { this.atributosNormais.add(atr); }
+            if (pvalue <= 0.05) {
+                if (!this.atributosNormais.contains(atr)) { this.atributosNormais.add(atr); }
+            } else {
+                if (!this.atributosNaoNormais.contains(atr)) { this.atributosNaoNormais.add(atr); }
+            }
         } else {
             if (!this.atributosNaoNormais.contains(atr)) { this.atributosNaoNormais.add(atr); }
         }
 
-        //stores mean and stddev
         this.means.put(atr, this.stats.getMean());
         this.stdDevs.put(atr, this.stats.getStandardDeviation());
         this.trends.put(atr, this.stats.getPercentile(50));
@@ -376,7 +423,7 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
         return TestUtils.kolmogorovSmirnovStatistic(unitNormal, values);
     }
 
-    private double generateSynthValuesByMean(/*Attribute atributo, */Double mean, Double std) {
+    private double generateSynthValuesByMean(Double mean, Double std) {
         double rangeMin = (mean - std);
         double rangeMax = (mean + std);
         double value = rangeMin + (rangeMax - rangeMin) * this.classifierRandom.nextDouble();
@@ -395,6 +442,15 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
             for (int l = 0; l < this.batchMin.numAttributes(); l++) {
                 if (l != this.batch.get(0).classIndex()) {
                     Attribute att = this.batch.get(0).attribute(l);
+
+//                    for (int m = 0; m < this.atributosCorrelacionados.size(); m++) {
+//                        if (att == this.atributosCorrelacionados.get(m).a ||
+//                                att == this.atributosCorrelacionados.get(m).b) {
+//
+//                        }
+//                    }
+//
+
 
                     if (att.isNumeric()) {
                         v = generateSynthValuesByMean(this.means.get(this.batch.get(0).attribute(l)),
