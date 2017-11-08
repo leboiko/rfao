@@ -267,12 +267,12 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
             double b0 = this.mean(y) - (b1 * this.mean(x));
             double randomVariation = this.generateRandomValueInRange(this.maxs.get(attrTwo),
                     this.maxs.get(attrTwo) * (1.0 + this.expandCorrelatedAttributes.getValue()));
-            System.out.println("Random variable " + String.valueOf(randomVariation) +
-            " Maximo do atr2 : " + String.valueOf(this.maxs.get(attrTwo)) +
-                    " Maximo do atr1 : " + String.valueOf(this.maxs.get(attrOne)) +
-            " b0: " + String.valueOf(b0) + " b1: " + String.valueOf(b1) +
-            " media de atr1: " + String.valueOf(this.mean(x)) + " media de atr2: " +
-            String.valueOf(this.mean(y)));
+//            System.out.println("Random variable " + String.valueOf(randomVariation) +
+//            " Maximo do atr2 : " + String.valueOf(this.maxs.get(attrTwo)) +
+//                    " Maximo do atr1 : " + String.valueOf(this.maxs.get(attrOne)) +
+//            " b0: " + String.valueOf(b0) + " b1: " + String.valueOf(b1) +
+//            " media de atr1: " + String.valueOf(this.mean(x)) + " media de atr2: " +
+//            String.valueOf(this.mean(y)));
 
             return b0 + b1 * randomVariation;
         } else {
@@ -490,7 +490,6 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
             for (int l = 0; l < this.atributosInstancia.size(); l++) {
                 Attribute att = this.atributosInstancia.get(l);
                 if (!this.attributesForRegression.contains(att)) {
-                    System.out.println("Nao esta na lista de regr");
                     if (att.isNumeric()) {
                         v = generateSynthValuesByMean(this.means.get(this.batch.get(0).attribute(l)),
                                 this.stdDevs.get(this.batch.get(0).attribute(l)));
@@ -505,18 +504,18 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
                     Boolean match = false;
                     for (int m = 0; m < this.atributosCorrelacionados.size(); m++) {
                         if (att == this.atributosCorrelacionados.get(m).a) {
-                            System.out.println(this.atributosCorrelacionados.get(m).a.name());
+//                            System.out.println(this.atributosCorrelacionados.get(m).a.name());
                             v = this.generateByRegression(this.atributosCorrelacionados.get(m).a,
                                     this.atributosCorrelacionados.get(m).b);
                             match = !match;
                         } else if (att == this.atributosCorrelacionados.get(m).b) {
-                            System.out.println(this.atributosCorrelacionados.get(m).b.name());
+//                            System.out.println(this.atributosCorrelacionados.get(m).b.name());
                             v = this.generateByRegression(this.atributosCorrelacionados.get(m).b,
                                     this.atributosCorrelacionados.get(m).a);
                             match = !match;
                         }
                         if (match) {
-                            System.out.println(v);
+//                            System.out.println(v);
                             break;
                         }
 
