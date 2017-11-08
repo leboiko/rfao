@@ -80,6 +80,8 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
     protected ArrayList<Attribute> atributosNaoNormais;
     protected ArrayList<CorrelatedPairs> atributosCorrelacionados;
     protected HashMap<Attribute, HashMap<Double,Double>> dictOfProbabilities;
+    protected ArrayList<Attribute> attributesForRegression;
+    protected ArrayList<Attribute> attributesForStatistic;
 
     protected Double balanceLevel;
     @Override
@@ -114,6 +116,8 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
         this.atributosNaoNormais = new ArrayList<>();
         this.atributosCorrelacionados = new ArrayList<>();
         this.dictOfProbabilities = new HashMap<>();
+        this.attributesForRegression = new ArrayList<>();
+        this.attributesForStatistic = new ArrayList<>();
     }
 
     private enum CorrelationKind {
@@ -156,12 +160,10 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
             if ("True".equals(this.balanceOption.getChosenLabel())) {
 
                 this.numInstanciasGerar = this.calcularNumInstanciasGerar();
-                this.getStatistics(instnc);
+                this.getStatistics(instnc); // separo os atributos normais dos outros e populo o array com todos
                 this.correlationTest(this.atributosNormais, CorrelationKind.Normal);
                 this.correlationTest(this.atributosNaoNormais, CorrelationKind.NotNormal);
-
                 this.setDictOfProbabilities(instnc);
-
                 this.generateSynthInstances();
 
                 for (int h = 0; h < this.synthInst.numInstances(); h++) {
@@ -217,17 +219,23 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
 
 
     private void correlationTest(ArrayList<Attribute> arrayAttributes, CorrelationKind kind) {
+        this.attributesForRegression.clear();
+
         for (int i = 0; i < arrayAttributes.size(); i++) {
             double [] pivot = this.getArrayOfValues(arrayAttributes.get(i));
+
             for (int j = i + 1; j< arrayAttributes.size(); j++) {
                 double [] toCompare = this.getArrayOfValues(arrayAttributes.get(j));
                 double corr = 0.0;
+
                 if (kind == CorrelationKind.Normal) {
                     corr = new PearsonsCorrelation().correlation(pivot, toCompare);
                 } else if (kind == CorrelationKind.NotNormal) {
                     corr = new SpearmansCorrelation().correlation(pivot, toCompare);
                 }
+
                 if (corr >= this.expectedCorrelationOption.getValue()) {
+
                     if (!this.atributosCorrelacionados.contains(new CorrelatedPairs(arrayAttributes.get(i),
                             arrayAttributes.get(j)))) {
                         this.atributosCorrelacionados.add(new CorrelatedPairs(arrayAttributes.get(i),
@@ -235,28 +243,42 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
                         System.out.println("Attributes " + arrayAttributes.get(i) + " and " + arrayAttributes.get(j) +
                                 " are correlated with " + String.valueOf(corr));
                     }
+
+                    if (!this.attributesForRegression.contains(arrayAttributes.get(i))) {
+                        this.attributesForRegression.add(arrayAttributes.get(i));
+                    } else if (!this.attributesForRegression.contains(arrayAttributes.get(j))) {
+                        this.attributesForRegression.add(arrayAttributes.get(j));
+                    }
                 }
             }
         }
     }
 
-    private HashMap<Attribute, Double> generateByRegression(Attribute attrOne, Attribute attrTwo) {
+    private Double generateByRegression(Attribute attrOne, Attribute attrTwo) {
         double[] x = this.getArrayOfValues(attrOne);
         double[] y = this.getArrayOfValues(attrTwo);
-        double m = 0.0;
-        double b = 0.0;
-        HashMap<Attribute, Double> valuesByAtt = new HashMap<>();
+
         if (x.length == y.length) {
-            m = this.sumArray(this.productBetweenArrays(x, y)) - this.sumArray(x) * this.sumArray(y);
-            m /= this.sumArray(this.squareArray(x)) - Math.pow(this.sumArray(x), 2) / x.length;
-            b = this.mean(y) - m * this.mean(x);
-            valuesByAtt.put(attrOne, 1.0 + this.maxs.get(attrOne));
-            valuesByAtt.put(attrTwo, m * valuesByAtt.get(attrOne) + b);
+            double[] a = this.decrementArrayWithConst(x, this.mean(x));
+            double[] b = this.decrementArrayWithConst(y, this.mean(y));
+            double c = this.sumArray(this.productBetweenArrays(a, b)); // parte de cima
+            double b1 = c / this.sumArray(this.squareArray(a));
+//            double b1 = this.sumArray(c) / this.sumArray(this.decrementArrayWithConstSquared(x, this.mean(x)));
+            double b0 = this.mean(y) - (b1 * this.mean(x));
+            double randomVariation = this.generateRandomValueInRange(this.maxs.get(attrTwo),
+                    this.maxs.get(attrTwo) * (1.0 + this.expandCorrelatedAttributes.getValue()));
+            System.out.println("Random variable " + String.valueOf(randomVariation) +
+            " Maximo do atr2 : " + String.valueOf(this.maxs.get(attrTwo)) +
+                    " Maximo do atr1 : " + String.valueOf(this.maxs.get(attrOne)) +
+            " b0: " + String.valueOf(b0) + " b1: " + String.valueOf(b1) +
+            " media de atr1: " + String.valueOf(this.mean(x)) + " media de atr2: " +
+            String.valueOf(this.mean(y)));
+
+            return b0 + b1 * randomVariation;
+        } else {
+            return 0.0;
         }
 
-
-        // prediction = m * valor + b;
-        return valuesByAtt;
     }
 
     private double mean(double[] array) {
@@ -290,6 +312,25 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
         return sum;
     }
 
+    private double[] decrementArrayWithConst(double[] arrayToSum, double constant) {
+        double[] arraySomado = new double[arrayToSum.length];
+        for (int j = 0; j < arrayToSum.length; j++) {
+            arraySomado[j] = arrayToSum[j] - constant;
+        }
+
+        return arraySomado;
+    }
+
+    private double[] decrementArrayWithConstSquared(double[] arrayToSum, double constant) {
+        double sum = 0.0;
+        double[] arraySomado = new double[arrayToSum.length];
+        for (int j = 0; j < arrayToSum.length; j++) {
+            arraySomado[j] = Math.pow(arrayToSum[j] - constant, 2);
+        }
+
+        return arraySomado;
+    }
+
     private void instantiateSynth() {
         this.synthInst = new Instances(batch);
     }
@@ -320,6 +361,9 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
         for (int i = 0; i < instance.numAttributes(); i++) {
             if (i != instance.classIndex()) {
                 this.getBasicInfo(instance.attribute(i));
+                if (!this.atributosInstancia.contains(instance.attribute(i))) {
+                    this.atributosInstancia.add(instance.attribute(i));
+                }
             }
         }
     }
@@ -371,7 +415,7 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
                 item.setValue(item.getValue() / sumRef) //update dict normalizing
         );
 
-        ArrayList<Double> dictIndex = new ArrayList<Double>(dictToNormalize.keySet());
+        ArrayList<Double> dictIndex = new ArrayList<>(dictToNormalize.keySet());
         Collections.sort(dictIndex);
         double previousValue = 0.0;
         for (Double value : dictIndex) {
@@ -431,6 +475,10 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
         return value;
     }
 
+    private double generateRandomValueInRange(Double a, Double b) {
+        return a + (b - a) * this.classifierRandom.nextDouble();
+    }
+
 
     private void generateSynthInstances() {
         this.synthInst.delete();
@@ -439,19 +487,10 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
             Instance synt = new DenseInstance(batch.numAttributes());
             synt.setDataset(synthInst);
 
-            for (int l = 0; l < this.batchMin.numAttributes(); l++) {
-                if (l != this.batch.get(0).classIndex()) {
-                    Attribute att = this.batch.get(0).attribute(l);
-
-//                    for (int m = 0; m < this.atributosCorrelacionados.size(); m++) {
-//                        if (att == this.atributosCorrelacionados.get(m).a ||
-//                                att == this.atributosCorrelacionados.get(m).b) {
-//
-//                        }
-//                    }
-//
-
-
+            for (int l = 0; l < this.atributosInstancia.size(); l++) {
+                Attribute att = this.atributosInstancia.get(l);
+                if (!this.attributesForRegression.contains(att)) {
+                    System.out.println("Nao esta na lista de regr");
                     if (att.isNumeric()) {
                         v = generateSynthValuesByMean(this.means.get(this.batch.get(0).attribute(l)),
                                 this.stdDevs.get(this.batch.get(0).attribute(l)));
@@ -462,18 +501,37 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
                             v = this.getValueByProbability(att);
                         }
                     }
+                } else {
+                    Boolean match = false;
+                    for (int m = 0; m < this.atributosCorrelacionados.size(); m++) {
+                        if (att == this.atributosCorrelacionados.get(m).a) {
+                            System.out.println(this.atributosCorrelacionados.get(m).a.name());
+                            v = this.generateByRegression(this.atributosCorrelacionados.get(m).a,
+                                    this.atributosCorrelacionados.get(m).b);
+                            match = !match;
+                        } else if (att == this.atributosCorrelacionados.get(m).b) {
+                            System.out.println(this.atributosCorrelacionados.get(m).b.name());
+                            v = this.generateByRegression(this.atributosCorrelacionados.get(m).b,
+                                    this.atributosCorrelacionados.get(m).a);
+                            match = !match;
+                        }
+                        if (match) {
+                            System.out.println(v);
+                            break;
+                        }
 
-                    synt.setValue(l, v);
+                    }
                 }
 
+                synt.setValue(l, v);
             }
-
             // sets the class
             synt.setClassValue(this.sMin);
             this.synthInst.add(synt);
-        }
-        System.out.printf("Batch synth:    %d\n", this.synthInst.size());
 
+        }
+
+        System.out.printf("Batch synth:    %d\n", this.synthInst.size());
 
     }
 
