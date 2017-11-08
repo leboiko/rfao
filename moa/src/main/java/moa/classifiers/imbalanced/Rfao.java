@@ -6,6 +6,8 @@
 package moa.classifiers.imbalanced;
 
 import moa.classifiers.MultiClassClassifier;
+import moa.classifiers.lazy.neighboursearch.LinearNNSearch;
+import moa.classifiers.lazy.neighboursearch.NearestNeighbourSearch;
 import moa.options.ClassOption;
 import com.github.javacliparser.FloatOption;
 import com.github.javacliparser.IntOption;
@@ -158,7 +160,6 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
             instantiateSynth();
 
             if ("True".equals(this.balanceOption.getChosenLabel())) {
-
                 this.numInstanciasGerar = this.calcularNumInstanciasGerar();
                 this.getStatistics(instnc); // separo os atributos normais dos outros e populo o array com todos
                 this.correlationTest(this.atributosNormais, CorrelationKind.Normal);
@@ -204,6 +205,29 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
     @Override
     public boolean isRandomizable() {
         return true;
+    }
+
+    private Boolean checkNeighborhood(Instance synthInstnc) {
+        Boolean synthIsOk = false;
+        LinearNNSearch knn = new LinearNNSearch();
+
+        try {
+            knn.setInstances(this.batch);
+            int counter = 0;
+            Instances toTest = knn.kNearestNeighbours(synthInstnc, 3);
+            for (int i = 0; i < toTest.size(); i++) {
+                if (toTest.get(i).classValue() == this.sMin) {
+                    counter += 1;
+                }
+            }
+            if (counter >= 2) {
+                synthIsOk = true;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        return synthIsOk;
     }
 
     private double[] getArrayOfValues(Attribute attr) {
@@ -483,7 +507,9 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
     private void generateSynthInstances() {
         this.synthInst.delete();
         double v = 0.0;
-        for (int k = 0; k < this.numInstanciasGerar; k++) {
+
+        while (this.synthInst.size() < this.numInstanciasGerar) {
+
             Instance synt = new DenseInstance(batch.numAttributes());
             synt.setDataset(synthInst);
 
@@ -526,8 +552,10 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
             }
             // sets the class
             synt.setClassValue(this.sMin);
-            this.synthInst.add(synt);
 
+            if (this.checkNeighborhood(synt)) {
+                this.synthInst.add(synt);
+            }
         }
 
         System.out.printf("Batch synth:    %d\n", this.synthInst.size());
