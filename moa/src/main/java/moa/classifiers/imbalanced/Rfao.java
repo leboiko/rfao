@@ -93,6 +93,7 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
     protected HashMap<Attribute, HashMap<Double,Double>> dictOfProbabilities;
     protected ArrayList<Attribute> attributesForRegression;
     protected ArrayList<Attribute> attributesForStatistic;
+    protected Boolean firstExecutionVerifier;
 
     protected Double balanceLevel;
     @Override
@@ -129,6 +130,7 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
         this.dictOfProbabilities = new HashMap<>();
         this.attributesForRegression = new ArrayList<>();
         this.attributesForStatistic = new ArrayList<>();
+        this.firstExecutionVerifier = true; // para garantir quando o corre a primeira execucao
     }
 
     private enum CorrelationKind {
@@ -138,46 +140,42 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
 
     @Override
     public void trainOnInstanceImpl(Instance instnc) {
+
+        if (!this.classes.contains(instnc.classValue())) {
+            this.classes.add(instnc.classValue());
+        }
+
         if(this.observedInstances == 0){
             this.batch = new Instances(instnc.dataset());
             this.batchMaj = new Instances(instnc.dataset());
             this.batchMin = new Instances(instnc.dataset());
-        }
-
-        if (this.observedInstances < this.windowOption.getValue()) {
-            // Adiciono as classes
-            if (!this.classes.contains(instnc.classValue())) {
-                this.classes.add(instnc.classValue());
-            }
-
 
         } else if ((this.observedInstances % this.windowOption.getValue()) == 0) {
-
-            // Atualizo a distribuicao de classes
-            this.classesDistr.clear(); // limpo o array que guarda a districuicao de classes
+            this.classesDistr.clear();
             this.classes.forEach((j) -> {
                 this.classesDistr.add(Collections.frequency(this.classesCount, j));
             });
 
-            this.whoIsMaj();
-            for(int i = 0; i < batch.numInstances(); i++){
-                this.fillBags(batch.get(i));
-                this.learner.trainOnInstance(batch.get(i));
+            if (this.firstExecutionVerifier) {
+                this.whoIsMaj();
+                this.firstExecutionVerifier = false;
+                this.fillBags(this.batch);
+                this.trainOnBatch(this.batch);
             }
+
 
 
             instantiateSynth();
 
             if ("True".equals(this.balanceOption.getChosenLabel())) {
                 this.numInstanciasGerar = this.calcularNumInstanciasGerar();
-                this.getStatistics(instnc); // separo os atributos normais dos outros e populo o array com todos
-                this.correlationTest(this.atributosNormais, CorrelationKind.Normal);
-                this.correlationTest(this.atributosNaoNormais, CorrelationKind.NotNormal);
-                this.setDictOfProbabilities(instnc);
-                this.generateSynthInstances();
-
-                for (int h = 0; h < this.synthInst.numInstances(); h++) {
-                    this.learner.trainOnInstance(this.synthInst.get(h));
+                if (this.numInstanciasGerar > 0) {
+                    this.getStatistics(instnc); // separo os atributos normais dos outros e populo o array com todos
+                    this.correlationTest(this.atributosNormais, CorrelationKind.Normal);
+                    this.correlationTest(this.atributosNaoNormais, CorrelationKind.NotNormal);
+                    this.setDictOfProbabilities(instnc);
+                    this.generateSynthInstances();
+                    this.trainOnBatch(this.synthInst);
                 }
             }
         } else {
@@ -186,13 +184,19 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
 
 
         if (this.windowOption.getValue() <= this.observedInstances) {
+
             Instance toRemove = this.batch.get(0);
             this.batch.delete(0);
-
             if (toRemove.classValue() == this.sMin) {
                 this.batchMin.delete(0);
             } else {
                 this.batchMaj.delete(0);
+            }
+
+            if (instnc.classValue() == this.sMin) {
+                this.batchMin.add(instnc);
+            } else {
+                this.batchMaj.add(instnc);
             }
         }
 
@@ -250,6 +254,12 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
         return arrayValores;
     }
 
+
+    private void trainOnBatch(Instances whichBatch) {
+        for(int i = 0; i < whichBatch.numInstances(); i++){
+            this.learner.trainOnInstance(whichBatch.get(i));
+        }
+    }
 
     private void correlationTest(ArrayList<Attribute> arrayAttributes, CorrelationKind kind) {
         this.attributesForRegression.clear();
@@ -368,13 +378,14 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
         this.synthInst = new Instances(batch);
     }
 
-    private void fillBags(Instance instnc) {
-        if (instnc.classValue() == this.sMin) {
-            this.batchMin.add(instnc);
-        } else {
-            this.batchMaj.add(instnc);
+    private void fillBags(Instances instncArray) {
+        for (int i = 0; i < instncArray.size(); i++) {
+            if (instncArray.get(i).classValue() == this.sMin) {
+                this.batchMin.add(instncArray.get(i));
+            } else {
+                this.batchMaj.add(instncArray.get(i));
+            }
         }
-
     }
 
 
@@ -501,11 +512,16 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
     }
 
     private double generateSynthValuesByMean(Double mean, Double std) {
-        double rangeMin = (mean - std);
-        double rangeMax = (mean + std);
-        double value = rangeMin + (rangeMax - rangeMin) * this.classifierRandom.nextDouble();
+        double rangeMin = mean - std;
+        double rangeMax = mean + std;
+        double generatedValue = 0.0;
+        if (std == 0) {
+            generatedValue = mean;
+        } else {
+            generatedValue = rangeMin + (rangeMax - rangeMin) * this.classifierRandom.nextDouble();
+        }
 
-        return value;
+        return generatedValue;
     }
 
     private double generateRandomValueInRange(Double a, Double b) {
@@ -578,7 +594,11 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
 
     private int calcularNumInstanciasGerar() {
         int quantasInstanciasDeveriaTer = (int) (this.batchMaj.size() * this.ratioOption.getValue());
-        return quantasInstanciasDeveriaTer - this.batchMin.size();
+        if (quantasInstanciasDeveriaTer <= this.batchMin.size()) {
+            return 0;
+        } else {
+            return quantasInstanciasDeveriaTer - this.batchMin.size();
+        }
     }
 
     private class CorrelatedPairs{
