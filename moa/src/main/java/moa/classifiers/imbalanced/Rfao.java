@@ -564,20 +564,32 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
         }
 
         private Double generateByRegression() {
+            double[] normalizedX = this.normalizeVector(this.x);
+            double[] normalizedY = this.normalizeVector(this.y);
 
             if (x.length == y.length) {
-                double[] a = this.decrementArrayWithConst(x, this.mean(x));
-                double[] b = this.decrementArrayWithConst(y, this.mean(y));
+                double[] a = this.decrementArrayWithConst(normalizedX, this.mean(normalizedX));
+                double[] b = this.decrementArrayWithConst(normalizedY, this.mean(normalizedY));
                 double c = this.sumArray(this.productBetweenArrays(a, b)); // parte de cima
                 double b1 = c / this.sumArray(this.squareArray(a));
-                double b0 = this.mean(y) - (b1 * this.mean(x));
-                double randomVariation = this.generateRandomValueInRange(this.getMaxValue(y),
-                        this.getMaxValue(y) * (1.0 + this.expandValuesPercent));
-                return b0 + b1 * randomVariation;
+                double b0 = this.mean(normalizedY) - (b1 * this.mean(normalizedX));
+                double randomVariation = this.generateRandomValueInRange(this.getMaxValue(normalizedY),
+                        this.getMaxValue(normalizedY) * (1.0 + this.expandValuesPercent));
+                return (b0 + b1 * randomVariation) * this.getMaxValue(this.x);
             } else {
                 return 0.0;
             }
 
+        }
+
+        private double[] normalizeVector (double[] vectorToNormalize) {
+            double vectorSum = this.sumArray(vectorToNormalize);
+            double [] normalizedVector = new double[vectorToNormalize.length];
+            for (int i = 0; i < vectorToNormalize.length; i++) {
+                normalizedVector[i] = vectorToNormalize[i] / vectorSum;
+            }
+
+            return normalizedVector;
         }
 
         private double getMaxValue(double[] arrayValues) {
