@@ -301,77 +301,11 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
         double[] x = this.getArrayOfValues(attrOne);
         double[] y = this.getArrayOfValues(attrTwo);
 
-        if (x.length == y.length) {
-            double[] a = this.decrementArrayWithConst(x, this.mean(x));
-            double[] b = this.decrementArrayWithConst(y, this.mean(y));
-            double c = this.sumArray(this.productBetweenArrays(a, b)); // parte de cima
-            double b1 = c / this.sumArray(this.squareArray(a));
-//            double b1 = this.sumArray(c) / this.sumArray(this.decrementArrayWithConstSquared(x, this.mean(x)));
-            double b0 = this.mean(y) - (b1 * this.mean(x));
-            double randomVariation = this.generateRandomValueInRange(this.maxs.get(attrTwo),
-                    this.maxs.get(attrTwo) * (1.0 + this.expandCorrelatedAttributes.getValue()));
-//            System.out.println("Random variable " + String.valueOf(randomVariation) +
-//            " Maximo do atr2 : " + String.valueOf(this.maxs.get(attrTwo)) +
-//                    " Maximo do atr1 : " + String.valueOf(this.maxs.get(attrOne)) +
-//            " b0: " + String.valueOf(b0) + " b1: " + String.valueOf(b1) +
-//            " media de atr1: " + String.valueOf(this.mean(x)) + " media de atr2: " +
-//            String.valueOf(this.mean(y)));
+        InternalLinearRegression regressor = new InternalLinearRegression(attrOne, attrTwo, x, y,
+                this.expandCorrelatedAttributes.getValue(), this.classifierRandom);
 
-            return b0 + b1 * randomVariation;
-        } else {
-            return 0.0;
-        }
+        return regressor.generateByRegression();
 
-    }
-
-    private double mean(double[] array) {
-        return this.sumArray(array) / array.length;
-    }
-
-    private double[] productBetweenArrays(double[] x, double[] y) {
-        double [] produto = new double[x.length];
-        for (int j = 0; j < x.length; j++) {
-            produto[j] = x[j] * y[j];
-        }
-
-        return produto;
-    }
-
-    private double[] squareArray(double[] arrayToSquare) {
-        double [] square = new double[arrayToSquare.length];
-        for (int j = 0; j < arrayToSquare.length; j++) {
-            square[j] = Math.pow(arrayToSquare[j], 2);
-        }
-
-        return square;
-    }
-
-    private double sumArray(double[] arrayToSum) {
-        double sum = 0.0;
-        for (int j = 0; j < arrayToSum.length; j++) {
-            sum += arrayToSum[j];
-        }
-
-        return sum;
-    }
-
-    private double[] decrementArrayWithConst(double[] arrayToSum, double constant) {
-        double[] arraySomado = new double[arrayToSum.length];
-        for (int j = 0; j < arrayToSum.length; j++) {
-            arraySomado[j] = arrayToSum[j] - constant;
-        }
-
-        return arraySomado;
-    }
-
-    private double[] decrementArrayWithConstSquared(double[] arrayToSum, double constant) {
-        double sum = 0.0;
-        double[] arraySomado = new double[arrayToSum.length];
-        for (int j = 0; j < arrayToSum.length; j++) {
-            arraySomado[j] = Math.pow(arrayToSum[j] - constant, 2);
-        }
-
-        return arraySomado;
     }
 
     private void instantiateSynth() {
@@ -524,9 +458,7 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
         return generatedValue;
     }
 
-    private double generateRandomValueInRange(Double a, Double b) {
-        return a + (b - a) * this.classifierRandom.nextDouble();
-    }
+
 
 
     private void generateSynthInstances() {
@@ -607,6 +539,97 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
         CorrelatedPairs(Attribute a, Attribute b){
             this.a = a;
             this.b = b;
+        }
+
+    }
+
+    private class InternalLinearRegression{
+
+        Attribute attrOne;
+        Attribute attrTwo;
+        double[] x;
+        double[] y;
+        double expandValuesPercent;
+        DescriptiveStatistics localStats = new  DescriptiveStatistics();
+        Random generateRandom;
+
+        InternalLinearRegression(Attribute attrOne, Attribute attrTwo, double[] x, double[] y, double expandValuesPercent,
+                                 Random generateRandom){
+            this.attrOne = attrOne;
+            this.attrTwo = attrTwo;
+            this.x = x;
+            this.y = y;
+            this.expandValuesPercent = expandValuesPercent;
+            this.generateRandom = generateRandom;
+        }
+
+        private Double generateByRegression() {
+
+            if (x.length == y.length) {
+                double[] a = this.decrementArrayWithConst(x, this.mean(x));
+                double[] b = this.decrementArrayWithConst(y, this.mean(y));
+                double c = this.sumArray(this.productBetweenArrays(a, b)); // parte de cima
+                double b1 = c / this.sumArray(this.squareArray(a));
+                double b0 = this.mean(y) - (b1 * this.mean(x));
+                double randomVariation = this.generateRandomValueInRange(this.getMaxValue(y),
+                        this.getMaxValue(y) * (1.0 + this.expandValuesPercent));
+                return b0 + b1 * randomVariation;
+            } else {
+                return 0.0;
+            }
+
+        }
+
+        private double getMaxValue(double[] arrayValues) {
+            for (double data : arrayValues) {
+                this.localStats.addValue(data);
+            }
+
+            return this.localStats.getMax();
+        }
+
+        private double mean(double[] array) {
+            return this.sumArray(array) / array.length;
+        }
+
+        private double[] productBetweenArrays(double[] x, double[] y) {
+            double [] produto = new double[x.length];
+            for (int j = 0; j < x.length; j++) {
+                produto[j] = x[j] * y[j];
+            }
+
+            return produto;
+        }
+
+        private double[] squareArray(double[] arrayToSquare) {
+            double [] square = new double[arrayToSquare.length];
+            for (int j = 0; j < arrayToSquare.length; j++) {
+                square[j] = Math.pow(arrayToSquare[j], 2);
+            }
+
+            return square;
+        }
+
+        private double sumArray(double[] arrayToSum) {
+            double sum = 0.0;
+            for (int j = 0; j < arrayToSum.length; j++) {
+                sum += arrayToSum[j];
+            }
+
+            return sum;
+        }
+
+        private double[] decrementArrayWithConst(double[] arrayToSum, double constant) {
+            double[] arraySomado = new double[arrayToSum.length];
+            for (int j = 0; j < arrayToSum.length; j++) {
+                arraySomado[j] = arrayToSum[j] - constant;
+            }
+
+            return arraySomado;
+        }
+
+        private double generateRandomValueInRange(Double a, Double b) {
+            return a + (b - a) * this.generateRandom.nextDouble();
         }
 
     }
