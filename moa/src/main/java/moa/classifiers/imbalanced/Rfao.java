@@ -94,6 +94,7 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
     protected ArrayList<Attribute> attributesForRegression;
     protected ArrayList<Attribute> attributesForStatistic;
     protected Boolean firstExecutionVerifier;
+    protected HashMap<Attribute, Double> currentValueForRegression;
 
     protected Double balanceLevel;
     @Override
@@ -131,6 +132,7 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
         this.attributesForRegression = new ArrayList<>();
         this.attributesForStatistic = new ArrayList<>();
         this.firstExecutionVerifier = true; // para garantir quando o corre a primeira execucao
+        this.currentValueForRegression = new HashMap<>();
     }
 
     private enum CorrelationKind {
@@ -263,6 +265,7 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
 
     private void correlationTest(ArrayList<Attribute> arrayAttributes, CorrelationKind kind) {
         this.attributesForRegression.clear();
+        this.attributesForStatistic.clear();
 
         for (int i = 0; i < arrayAttributes.size(); i++) {
             double [] pivot = this.getArrayOfValues(arrayAttributes.get(i));
@@ -295,14 +298,31 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
                 }
             }
         }
+        this.fillAttributesForStatistic();
+    }
+
+    private void fillAttributesForStatistic() {
+        for (Attribute attr : this.atributosInstancia) {
+            if (!this.attributesForRegression.contains(attr)) {
+                this.attributesForStatistic.add(attr);
+            }
+        }
     }
 
     private Double generateByRegression(Attribute attrOne, Attribute attrTwo) {
         double[] x = this.getArrayOfValues(attrOne);
         double[] y = this.getArrayOfValues(attrTwo);
+        InternalLinearRegression regressor;
 
-        InternalLinearRegression regressor = new InternalLinearRegression(attrOne, attrTwo, x, y,
-                this.expandCorrelatedAttributes.getValue(), this.classifierRandom);
+        if (this.currentValueForRegression.containsKey(attrTwo)) {
+            regressor = new InternalLinearRegression(x, y,
+                    this.expandCorrelatedAttributes.getValue(), this.classifierRandom,
+                    this.currentValueForRegression.get(attrTwo));
+        } else {
+            regressor = new InternalLinearRegression(x, y,
+                    this.expandCorrelatedAttributes.getValue(), this.classifierRandom, 0.0);
+        }
+
 
         return regressor.generateByRegression();
 
@@ -459,55 +479,68 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
     }
 
 
+    private double generateSynthByStatistics(Attribute attr) {
+        double v = 0.0;
+        if (attr.isNumeric()) {
+            v = generateSynthValuesByMean(this.means.get(attr),
+                    this.stdDevs.get(attr));
+        } else if (attr.isNominal()) {
+            if (attr.numValues() == 2) {
+                v = this.trends.get(attr);
+            } else {
+                v = this.getValueByProbability(attr);
+            }
+        }
+        return v;
+    }
 
+    private double generateSynthUsingRegression(Attribute attr) {
+        double v = 0.0;
+        boolean match = false;
+        for (int m = 0; m < this.atributosCorrelacionados.size(); m++) {
+            if (attr == this.atributosCorrelacionados.get(m).a) {
+                v = this.generateByRegression(this.atributosCorrelacionados.get(m).a,
+                        this.atributosCorrelacionados.get(m).b);
+                match = !match;
+            } else if (attr == this.atributosCorrelacionados.get(m).b) {
+                v = this.generateByRegression(this.atributosCorrelacionados.get(m).b,
+                        this.atributosCorrelacionados.get(m).a);
+                match = !match;
+            }
+            if (match) {
+                break;
+            }
+        }
+
+        if (!this.currentValueForRegression.containsKey(attr)) {
+            this.currentValueForRegression.put(attr, v);
+        }
+
+        return v;
+    }
 
     private void generateSynthInstances() {
         this.synthInst.delete();
-        double v = 0.0;
-
+        
         while (this.synthInst.size() < this.numInstanciasGerar) {
-
+            this.currentValueForRegression.clear();
             Instance synt = new DenseInstance(batch.numAttributes());
             synt.setDataset(synthInst);
+            double v = 0.0;
 
             for (int l = 0; l < this.atributosInstancia.size(); l++) {
-                Attribute att = this.atributosInstancia.get(l);
-                if (!this.attributesForRegression.contains(att)) {
-                    if (att.isNumeric()) {
-                        v = generateSynthValuesByMean(this.means.get(this.batch.get(0).attribute(l)),
-                                this.stdDevs.get(this.batch.get(0).attribute(l)));
-                    } else if (att.isNominal()) {
-                        if (att.numValues() == 2) {
-                            v = this.trends.get(att);
-                        } else {
-                            v = this.getValueByProbability(att);
-                        }
-                    }
+                Attribute attr = this.atributosInstancia.get(l);
+                // Geracao de atributos via malandrops
+                if (this.attributesForStatistic.contains(attr)) {
+                    v = this.generateSynthByStatistics(attr);
+                    // geracao via regressao
                 } else {
-                    Boolean match = false;
-                    for (int m = 0; m < this.atributosCorrelacionados.size(); m++) {
-                        if (att == this.atributosCorrelacionados.get(m).a) {
-//                            System.out.println(this.atributosCorrelacionados.get(m).a.name());
-                            v = this.generateByRegression(this.atributosCorrelacionados.get(m).a,
-                                    this.atributosCorrelacionados.get(m).b);
-                            match = !match;
-                        } else if (att == this.atributosCorrelacionados.get(m).b) {
-//                            System.out.println(this.atributosCorrelacionados.get(m).b.name());
-                            v = this.generateByRegression(this.atributosCorrelacionados.get(m).b,
-                                    this.atributosCorrelacionados.get(m).a);
-                            match = !match;
-                        }
-                        if (match) {
-//                            System.out.println(v);
-                            break;
-                        }
-
-                    }
+                    v = this.generateSynthUsingRegression(attr);
+                    this.currentValueForRegression.put(attr, v);
                 }
 
                 synt.setValue(l, v);
             }
-            // sets the class
             synt.setClassValue(this.sMin);
 
             if ("True".equals(this.ensureNeighborhood.getChosenLabel())){
@@ -545,22 +578,19 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
 
     private class InternalLinearRegression{
 
-        Attribute attrOne;
-        Attribute attrTwo;
         double[] x;
         double[] y;
         double expandValuesPercent;
         DescriptiveStatistics localStats = new  DescriptiveStatistics();
         Random generateRandom;
+        double knownY;
 
-        InternalLinearRegression(Attribute attrOne, Attribute attrTwo, double[] x, double[] y, double expandValuesPercent,
-                                 Random generateRandom){
-            this.attrOne = attrOne;
-            this.attrTwo = attrTwo;
+        InternalLinearRegression(double[] x, double[] y, double expandValuesPercent, Random generateRandom, double knownY){
             this.x = x;
             this.y = y;
             this.expandValuesPercent = expandValuesPercent;
             this.generateRandom = generateRandom;
+            this.knownY = knownY;
         }
 
         private Double generateByRegression() {
@@ -573,8 +603,14 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
                 double c = this.sumArray(this.productBetweenArrays(a, b)); // parte de cima
                 double b1 = c / this.sumArray(this.squareArray(a));
                 double b0 = this.mean(normalizedY) - (b1 * this.mean(normalizedX));
-                double randomVariation = this.generateRandomValueInRange(this.getMaxValue(normalizedY),
-                        this.getMaxValue(normalizedY) * (1.0 + this.expandValuesPercent));
+                double randomVariation = 0.0;
+                if (this.knownY == 0.0){
+                    randomVariation = this.generateRandomValueInRange(this.getMaxValue(normalizedY),
+                            this.getMaxValue(normalizedY) * (1.0 + this.expandValuesPercent));
+                } else {
+                    randomVariation = this.knownY;
+                }
+
                 return (b0 + b1 * randomVariation) * this.getMaxValue(this.x);
             } else {
                 return 0.0;
