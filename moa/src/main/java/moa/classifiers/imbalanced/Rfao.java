@@ -47,6 +47,9 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
     public IntOption windowOption = new IntOption("window", 'w', "", 1000, 0,
             Integer.MAX_VALUE);
 
+    public MultiChoiceOption keepMinorityBatch = new MultiChoiceOption("keepMinorityBatch", 'j',
+            "", new String[]{"True", "False"}, new String[]{"to keep", "or not"}, 1);
+
     public FloatOption ratioOption = new FloatOption("ratio", 'r', "", 0.1, 0.0, 1.0);
 
     public FloatOption expectedCorrelationOption = new FloatOption(
@@ -71,6 +74,7 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
     protected Instances batch;
     protected Instances batchMaj;
     protected Instances batchMin;
+    protected Instances windowMin;
     protected ArrayList<Double> classes;
     protected ArrayList<Double> classesCount;
     protected ArrayList<Integer> classesDistr;
@@ -109,6 +113,7 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
         this.batch = new Instances();
         this.batchMaj = new Instances();
         this.batchMin = new Instances();
+        this.windowMin = new Instances();
         this.classes = new ArrayList<>();
         this.classesCount = new ArrayList<>();
         this.classesDistr = new ArrayList<>();
@@ -151,6 +156,7 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
             this.batch = new Instances(instnc.dataset());
             this.batchMaj = new Instances(instnc.dataset());
             this.batchMin = new Instances(instnc.dataset());
+            this.windowMin = new Instances(instnc.dataset());
 
         } else if ((this.observedInstances % this.windowOption.getValue()) == 0) {
             this.classesDistr.clear();
@@ -165,8 +171,6 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
                 this.trainOnBatch(this.batch);
             }
 
-
-
             instantiateSynth();
 
             if ("True".equals(this.balanceOption.getChosenLabel())) {
@@ -179,6 +183,7 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
                     this.generateSynthInstances();
                     this.trainOnBatch(this.synthInst);
                 }
+                System.out.printf("Windows min:    %d\n", this.windowMin.size());
             }
         } else {
             this.learner.trainOnInstance(instnc);
@@ -186,7 +191,9 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
 
 
         if (this.windowOption.getValue() <= this.observedInstances) {
-
+            if (this.windowMin.size() >= this.batchMaj.size()) {
+                this.windowMin.delete(0);
+            }
             Instance toRemove = this.batch.get(0);
             this.batch.delete(0);
             if (toRemove.classValue() == this.sMin) {
@@ -197,6 +204,7 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
 
             if (instnc.classValue() == this.sMin) {
                 this.batchMin.add(instnc);
+                this.windowMin.add(instnc);
             } else {
                 this.batchMaj.add(instnc);
             }
@@ -246,11 +254,17 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
     }
 
     private double[] getArrayOfValues(Attribute attr) {
-        double[] arrayValores = new double[this.batchMin.numInstances()];
-        // Itero sobre todos os valores correspondentes ao atributo
-        int indexOfAtt = this.batchMin.get(0).indexOfAttribute(attr);
-        for(int iteRow = 0; iteRow < this.batchMin.numInstances(); iteRow++){
-            double value = this.batchMin.get(iteRow).value(indexOfAtt);
+        Instances whichBatch = new Instances();
+        if ("True".equals(this.keepMinorityBatch.getChosenLabel())){
+            whichBatch = this.windowMin;
+        } else {
+            whichBatch = this.batchMin;
+
+        }
+        double[] arrayValores = new double[whichBatch.numInstances()];
+        int indexOfAtt = whichBatch.get(0).indexOfAttribute(attr);
+        for(int iteRow = 0; iteRow < whichBatch.numInstances(); iteRow++){
+            double value = whichBatch.get(iteRow).value(indexOfAtt);
             arrayValores[iteRow] = value;
         }
         return arrayValores;
@@ -336,6 +350,7 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
         for (int i = 0; i < instncArray.size(); i++) {
             if (instncArray.get(i).classValue() == this.sMin) {
                 this.batchMin.add(instncArray.get(i));
+                this.windowMin.add(instncArray.get(i)); // adiciono a janela deslizante
             } else {
                 this.batchMaj.add(instncArray.get(i));
             }
@@ -521,7 +536,7 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
 
     private void generateSynthInstances() {
         this.synthInst.delete();
-        
+
         while (this.synthInst.size() < this.numInstanciasGerar) {
             this.currentValueForRegression.clear();
             Instance synt = new DenseInstance(batch.numAttributes());
@@ -536,7 +551,6 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
                     // geracao via regressao
                 } else {
                     v = this.generateSynthUsingRegression(attr);
-                    this.currentValueForRegression.put(attr, v);
                 }
 
                 synt.setValue(l, v);
