@@ -69,7 +69,7 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
     public IntOption minNehghbors = new IntOption("minNeighbors", 'h', "", 2, 0,
             Integer.MAX_VALUE);
 
-    public MultiChoiceOption randomUndersampling = new MultiChoiceOption("randomUndersampling", 'z',
+    public MultiChoiceOption randomUndersamplingActived = new MultiChoiceOption("randomUndersampling", 'z',
             "", new String[]{"True", "False"}, new String[]{"to undersample", "or not"}, 0);
 
     public FloatOption percentOfMajToKeep = new FloatOption(
@@ -81,7 +81,6 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
     protected Instances batchMaj;
     protected Instances batchMin;
     protected Instances windowMin;
-    protected Instances windowMinSynth;
     protected ArrayList<Double> classes;
     protected ArrayList<Double> classesCount;
     protected ArrayList<Integer> classesDistr;
@@ -121,7 +120,6 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
         this.batchMaj = new Instances();
         this.batchMin = new Instances();
         this.windowMin = new Instances();
-        this.windowMinSynth = new Instances();
         this.classes = new ArrayList<>();
         this.classesCount = new ArrayList<>();
         this.classesDistr = new ArrayList<>();
@@ -165,7 +163,6 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
             this.batchMaj = new Instances(instnc.dataset());
             this.batchMin = new Instances(instnc.dataset());
             this.windowMin = new Instances(instnc.dataset());
-            this.windowMinSynth = new Instances(instnc.dataset());
 
         } else if ((this.observedInstances % this.windowOption.getValue()) == 0) {
             this.classesDistr.clear();
@@ -177,15 +174,17 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
                 this.whoIsMaj();
                 this.firstExecutionVerifier = false;
                 this.fillBags(this.batch);
-//                this.trainOnBatch(this.batch);
             }
-
-
-            instantiateSynth();
-
-            if ("True".equals(this.balanceOption.getChosenLabel())) {
+            // se vou fazer random undersampling
+            if ("True".equals(this.randomUndersamplingActived.getChosenLabel())) {
                 // treino na versao com undersampling de smaj
                 this.trainOnBatch(this.randomUndersampling());
+            } else {
+                this.trainOnBatch(this.batchMaj);
+            }
+            // se vou balancear por oversampling tbm
+            if ("True".equals(this.balanceOption.getChosenLabel())) {
+                this.instantiateSynth();
                 this.numInstanciasGerar = this.calcularNumInstanciasGerar();
                 if (this.numInstanciasGerar > 0) {
                     this.getStatistics(instnc); // separo os atributos normais dos outros e populo o array com todos
@@ -194,7 +193,6 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
                     this.setDictOfProbabilities(instnc);
                     this.generateSynthInstances();
                     if ("True".equals(this.keepMinorityBatch.getChosenLabel())) {
-                        this.trainOnBatch(this.windowMinSynth);
                         this.trainOnBatch(this.windowMin);
                     } else {
                         this.trainOnBatch(this.synthInst);
@@ -209,25 +207,25 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
 
 
         if (this.windowOption.getValue() <= this.observedInstances) {
-            // window de minoritarias
-            if ((this.windowMin.size() + this.windowMinSynth.size()) >= this.windowOption.getValue()) {
-                if (this.windowMinSynth.size() > 0) {
-                    this.windowMinSynth.delete(0);
-                } else {
-                    this.windowMin.delete(0);
-                }
-            }
             Instance toRemove = this.batch.get(0);
             this.batch.delete(0);
             if (toRemove.classValue() == this.sMin) {
                 this.batchMin.delete(0);
+                // window de minoritarias
+                if("True".equals(this.keepMinorityBatch.getChosenLabel())) {
+                    if (this.windowMin.size() >= 10000) {
+                        this.windowMin.delete(0);
+                    }
+                }
             } else {
                 this.batchMaj.delete(0);
             }
 
             if (instnc.classValue() == this.sMin) {
                 this.batchMin.add(instnc);
-                this.windowMin.add(instnc);
+                if("True".equals(this.keepMinorityBatch.getChosenLabel())) {
+                    this.windowMin.add(instnc);
+                }
             } else {
                 this.batchMaj.add(instnc);
             }
@@ -624,16 +622,14 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
             if ("True".equals(this.ensureNeighborhood.getChosenLabel())){
                 if (this.checkNeighborhood(synt)) {
                     this.synthInst.add(synt);
-                    this.windowMinSynth.add(synt);
                 }
             } else {
                 this.synthInst.add(synt);
-                this.windowMinSynth.add(synt);
             }
+
         }
 
         System.out.printf("Batch synth:    %d\n", this.synthInst.size());
-        System.out.printf("window synth:    %d\n", this.windowMinSynth.size());
 
     }
 
