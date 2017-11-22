@@ -69,6 +69,12 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
     public IntOption minNehghbors = new IntOption("minNeighbors", 'h', "", 2, 0,
             Integer.MAX_VALUE);
 
+    public MultiChoiceOption randomUndersampling = new MultiChoiceOption("randomUndersampling", 'z',
+            "", new String[]{"True", "False"}, new String[]{"to undersample", "or not"}, 0);
+
+    public FloatOption percentOfMajToKeep = new FloatOption(
+            "percentOfMajorityInstancesToKeep", 'y', "", 0.7, 0.0, 1.0);
+
     protected Classifier learner;
     protected Integer observedInstances;
     protected Instances batch;
@@ -171,12 +177,15 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
                 this.whoIsMaj();
                 this.firstExecutionVerifier = false;
                 this.fillBags(this.batch);
-                this.trainOnBatch(this.batch);
+//                this.trainOnBatch(this.batch);
             }
+
 
             instantiateSynth();
 
             if ("True".equals(this.balanceOption.getChosenLabel())) {
+                // treino na versao com undersampling de smaj
+                this.trainOnBatch(this.randomUndersampling());
                 this.numInstanciasGerar = this.calcularNumInstanciasGerar();
                 if (this.numInstanciasGerar > 0) {
                     this.getStatistics(instnc); // separo os atributos normais dos outros e populo o array com todos
@@ -186,8 +195,10 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
                     this.generateSynthInstances();
                     if ("True".equals(this.keepMinorityBatch.getChosenLabel())) {
                         this.trainOnBatch(this.windowMinSynth);
+                        this.trainOnBatch(this.windowMin);
                     } else {
                         this.trainOnBatch(this.synthInst);
+                        this.trainOnBatch(this.batchMin);
                     }
                 }
                 System.out.printf("Window min:    %d\n", this.windowMin.size());
@@ -221,10 +232,22 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
                 this.batchMaj.add(instnc);
             }
         }
-
         this.batch.add(instnc);
         this.observedInstances++;
         this.classesCount.add(instnc.classValue());
+    }
+
+    private Instances randomUndersampling() {
+        int instancesToDelete = this.batchMaj.size() - ((int) (this.batchMaj.size() *
+                this.percentOfMajToKeep.getValue()));
+
+        Instances batchMajUndersampled = new Instances(this.batchMaj);
+        for (int j = 0; j < instancesToDelete; j++) {
+            batchMajUndersampled.delete(this.getRandomInRange(0, batchMajUndersampled.size()));
+        }
+        System.out.println("Random undersampling executado! Batch maj tem " + this.batchMaj.size());
+        System.out.println("Random undersampling executado! Batch und tem " + batchMajUndersampled.size());
+        return batchMajUndersampled;
     }
 
     @Override
@@ -335,8 +358,8 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
                             arrayAttributes.get(j)))) {
                         this.atributosCorrelacionados.add(new CorrelatedPairs(arrayAttributes.get(i),
                                 arrayAttributes.get(j)));
-                        System.out.println("Attributes " + arrayAttributes.get(i) + " and " + arrayAttributes.get(j) +
-                                " are correlated with " + String.valueOf(corr));
+//                        System.out.println("Attributes " + arrayAttributes.get(i) + " and " + arrayAttributes.get(j) +
+//                                " are correlated with " + String.valueOf(corr));
                     }
 
                     if (!this.attributesForRegression.contains(arrayAttributes.get(i))) {
@@ -474,6 +497,8 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
         return dictToNormalize;
     }
 
+
+
     private Double sumDictValues(HashMap<Double,Double> dictToSum) {
         Double sum = 0.0;
         for (Double value : dictToSum.values()) {
@@ -526,6 +551,10 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
         }
 
         return generatedValue;
+    }
+
+    private int getRandomInRange(int rangeMin, int rangeMax) {
+        return (int) (rangeMin + (rangeMax - rangeMin) * this.classifierRandom.nextDouble());
     }
 
 
