@@ -75,6 +75,7 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
     protected Instances batchMaj;
     protected Instances batchMin;
     protected Instances windowMin;
+    protected Instances windowMinSynth;
     protected ArrayList<Double> classes;
     protected ArrayList<Double> classesCount;
     protected ArrayList<Integer> classesDistr;
@@ -114,6 +115,7 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
         this.batchMaj = new Instances();
         this.batchMin = new Instances();
         this.windowMin = new Instances();
+        this.windowMinSynth = new Instances();
         this.classes = new ArrayList<>();
         this.classesCount = new ArrayList<>();
         this.classesDistr = new ArrayList<>();
@@ -157,6 +159,7 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
             this.batchMaj = new Instances(instnc.dataset());
             this.batchMin = new Instances(instnc.dataset());
             this.windowMin = new Instances(instnc.dataset());
+            this.windowMinSynth = new Instances(instnc.dataset());
 
         } else if ((this.observedInstances % this.windowOption.getValue()) == 0) {
             this.classesDistr.clear();
@@ -181,9 +184,13 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
                     this.correlationTest(this.atributosNaoNormais, CorrelationKind.NotNormal);
                     this.setDictOfProbabilities(instnc);
                     this.generateSynthInstances();
-                    this.trainOnBatch(this.synthInst);
+                    if ("True".equals(this.keepMinorityBatch.getChosenLabel())) {
+                        this.trainOnBatch(this.windowMinSynth);
+                    } else {
+                        this.trainOnBatch(this.synthInst);
+                    }
                 }
-                System.out.printf("Windows min:    %d\n", this.windowMin.size());
+                System.out.printf("Window min:    %d\n", this.windowMin.size());
             }
         } else {
             this.learner.trainOnInstance(instnc);
@@ -191,8 +198,13 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
 
 
         if (this.windowOption.getValue() <= this.observedInstances) {
-            if (this.windowMin.size() >= this.batchMaj.size()) {
-                this.windowMin.delete(0);
+            // window de minoritarias
+            if ((this.windowMin.size() + this.windowMinSynth.size()) >= this.windowOption.getValue()) {
+                if (this.windowMinSynth.size() > 0) {
+                    this.windowMinSynth.delete(0);
+                } else {
+                    this.windowMin.delete(0);
+                }
             }
             Instance toRemove = this.batch.get(0);
             this.batch.delete(0);
@@ -251,6 +263,29 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
         }
 
         return synthIsOk;
+    }
+
+    private void getInitialAverages(Instance instnc) {
+        for (int i = 0; i < instnc.numAttributes(); i++ ) {
+            if (instnc.attribute(i).isNumeric()) {
+                double[] attrValues = this.getArrayOfValues(instnc.attribute(i));
+                double initialSum = 0.0;
+                for (double value : attrValues) {
+                    initialSum += value;
+                }
+                this.means.put(instnc.attribute(i), (initialSum / attrValues.length));
+            }
+        }
+    }
+
+    private void updatedAverages(Instance instnc) {
+        for (int i = 0; i < instnc.numAttributes(); i++ ) {
+            if (instnc.attribute(i).isNumeric()) {
+                double oldAverage = this.means.get(instnc.attribute(i));
+                double newAverage = oldAverage - ((instnc.value(i) - oldAverage) / this.batchMin.size());
+                this.means.put(instnc.attribute(i), newAverage);
+            }
+        }
     }
 
     private double[] getArrayOfValues(Attribute attr) {
@@ -560,13 +595,16 @@ public class Rfao extends AbstractClassifier implements MultiClassClassifier {
             if ("True".equals(this.ensureNeighborhood.getChosenLabel())){
                 if (this.checkNeighborhood(synt)) {
                     this.synthInst.add(synt);
+                    this.windowMinSynth.add(synt);
                 }
             } else {
                 this.synthInst.add(synt);
+                this.windowMinSynth.add(synt);
             }
         }
 
         System.out.printf("Batch synth:    %d\n", this.synthInst.size());
+        System.out.printf("window synth:    %d\n", this.windowMinSynth.size());
 
     }
 
