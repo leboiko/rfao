@@ -33,8 +33,16 @@ public class teste extends moa.classifiers.AbstractClassifier implements MultiCl
             this.window = new Instances(instnc.dataset());
         } else if ((this.observedInstances % this.windowOption.getValue()) == 0) {
             // aqui acontece o codigo a cada janela
+
+            // Aqui vai a lógica de divisao da window em nHats
+            // se fossem 1000 instancias e 10 hats, a divisao seria de 100 instancias por hat
+            // - Treinar cada hat com a devida porção
+            // - Definir por voto maj qual instancia votar
+            // - this.learner.getVotesForInstance(instnc);
+
             for (int i = 0; i < this.window.size(); i++) {
                 this.learner.trainOnInstance(this.window.get(i));
+
             }
         }
 
