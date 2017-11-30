@@ -8,6 +8,7 @@ package moa.classifiers.imbalanced;
 import moa.classifiers.MultiClassClassifier;
 import moa.classifiers.lazy.neighboursearch.LinearNNSearch;
 import moa.classifiers.lazy.neighboursearch.NearestNeighbourSearch;
+import moa.classifiers.trees.HoeffdingAdaptiveTree;
 import moa.options.ClassOption;
 import com.github.javacliparser.FloatOption;
 import com.github.javacliparser.IntOption;
